@@ -1,0 +1,106 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Profile ------------------------------------------------------------------
+
+model ProfileSection {
+  id        String        @id @default(cuid())
+  type      String // summary | skill | experience | project | achievement | other
+  title     String
+  content   String
+  updatedAt DateTime      @updatedAt
+  createdAt DateTime      @default(now())
+  chunks    ProfileChunk[]
+}
+
+model ProfileChunk {
+  id        String         @id @default(cuid())
+  sectionId String
+  section   ProfileSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  text      String
+  embedding Json
+}
+
+// Jobs ---------------------------------------------------------------------
+
+model Job {
+  id           String      @id @default(cuid())
+  title        String
+  company      String
+  url          String?
+  description  String
+  matchScore   Int?
+  matchReasons Json?
+  matchGaps    Json?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  contacts     Contact[]
+  outreach     Outreach[]
+}
+
+model Contact {
+  id        String      @id @default(cuid())
+  jobId     String
+  job       Job         @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  name      String?
+  email     String
+  source    String // careers_page | job_post | pattern_guess | manual
+  verified  Boolean     @default(false)
+  createdAt DateTime    @default(now())
+  outreach  Outreach[]
+}
+
+// Outreach -----------------------------------------------------------------
+
+model Outreach {
+  id             String    @id @default(cuid())
+  jobId          String
+  job            Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  contactId      String
+  contact        Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  kind           String    @default("initial") // initial | followup
+  parentOutreachId String? // for followups: the initial outreach this replies to
+  parent         Outreach?  @relation("OutreachFollowups", fields: [parentOutreachId], references: [id], onDelete: SetNull)
+  followups      Outreach[] @relation("OutreachFollowups")
+  subject        String
+  body           String
+  status         String    @default("drafted") // drafted | approved | sent | replied | bounced | no_reply | call_scheduled | interview | rejected | offer
+  messageId      String?
+  sentAt         DateTime?
+  repliedAt      DateTime?
+  followUpDueAt  DateTime?
+  followUpSentAt DateTime?
+  notes          String?
+  lastError      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([status])
+  @@index([followUpDueAt])
+}
+
+// App infra ----------------------------------------------------------------
+
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+model AppLog {
+  id        String   @id @default(cuid())
+  level     String   @default("info") // info | error
+  scope     String // llm | send | replies | profile | jobs | worker | ui
+  message   String
+  detail    String?
+  seen      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
