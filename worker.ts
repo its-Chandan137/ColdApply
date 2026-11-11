@@ -6,6 +6,9 @@ import { sendOutreach, sentCountSince, startOfToday } from "./lib/send";
 import { pollReplies } from "./lib/imap";
 import { generateDraft } from "./lib/draft";
 import { logEvent } from "./lib/log";
+import { getAlertImportSettings, getApiImportSettings } from "./lib/import/settings";
+import { runAlertEmailImport } from "./lib/import/alerts";
+import { runJobApiImport } from "./lib/import/api";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -134,6 +137,50 @@ async function tickReplies(): Promise<void> {
   }
 }
 
+let alertImportInFlight = false;
+async function tickAlertImport(): Promise<void> {
+  if (alertImportInFlight) return;
+  try {
+    const settings = await getAlertImportSettings();
+    if (!settings.enabled) return;
+    alertImportInFlight = true;
+    const run = await runAlertEmailImport("worker");
+    if (run) {
+      console.log(`[worker] alert import: ${run.message ?? run.status}`);
+    }
+  } catch (e) {
+    await logEvent({
+      level: "error",
+      scope: "worker",
+      message: `alert import tick failed: ${e instanceof Error ? e.message : String(e)}`,
+    });
+  } finally {
+    alertImportInFlight = false;
+  }
+}
+
+let apiImportInFlight = false;
+async function tickApiImport(): Promise<void> {
+  if (apiImportInFlight) return;
+  try {
+    const settings = await getApiImportSettings();
+    if (!settings.enabled) return;
+    apiImportInFlight = true;
+    const run = await runJobApiImport("worker");
+    if (run) {
+      console.log(`[worker] api import (${settings.provider}): ${run.message ?? run.status}`);
+    }
+  } catch (e) {
+    await logEvent({
+      level: "error",
+      scope: "worker",
+      message: `api import tick failed: ${e instanceof Error ? e.message : String(e)}`,
+    });
+  } finally {
+    apiImportInFlight = false;
+  }
+}
+
 async function main() {
   console.log("[worker] starting cold-outreach worker");
   await logEvent({
@@ -144,14 +191,18 @@ async function main() {
   cron.schedule("* * * * *", () => void tickSend());
   cron.schedule("*/10 * * * *", () => void tickReplies());
   cron.schedule("*/15 * * * *", () => void tickFollowUps());
+  cron.schedule("*/30 * * * *", () => void tickAlertImport());
+  cron.schedule("*/30 * * * *", () => void tickApiImport());
 
   // Run once shortly after boot so a restart doesn't stall the pipeline.
   setTimeout(() => void tickSend(), 3_000);
   setTimeout(() => void tickFollowUps(), 8_000);
   setTimeout(() => void tickReplies(), 15_000);
+  setTimeout(() => void tickAlertImport(), 20_000);
+  setTimeout(() => void tickApiImport(), 25_000);
 
   console.log(
-    "[worker] cron scheduled: send every 1m, replies every 10m, follow-ups every 15m",
+    "[worker] cron scheduled: send every 1m, replies every 10m, follow-ups every 15m, alert import every 30m, api import every 30m",
   );
 }
 

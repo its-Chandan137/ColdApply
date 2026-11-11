@@ -38,10 +38,42 @@ model Job {
   matchScore   Int?
   matchReasons Json?
   matchGaps    Json?
+  source       String      @default("manual") // manual | alert_email | api_remotive | api_adzuna
+  externalId   String?     // source-specific id for dedupe
+  importRunId  String?
+  importRun    ImportRun?  @relation(fields: [importRunId], references: [id], onDelete: SetNull)
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
   contacts     Contact[]
   outreach     Outreach[]
+
+  @@index([source])
+  @@index([url])
+}
+
+// Import pipeline -----------------------------------------------------------
+
+model ImportRun {
+  id               String   @id @default(cuid())
+  kind             String   // alert_email | job_api
+  status           String   @default("running") // running | success | failed | partial
+  trigger          String   @default("manual") // manual | worker
+  startedAt        DateTime @default(now())
+  finishedAt       DateTime?
+  fetched          Int      @default(0)
+  parsed           Int      @default(0)
+  imported         Int      @default(0)
+  duplicates       Int      @default(0)
+  scored           Int      @default(0)
+  contactsFound    Int      @default(0)
+  drafted          Int      @default(0)
+  errors           Int      @default(0)
+  message          String?
+  details          Json?
+  createdAt        DateTime @default(now())
+  jobs             Job[]
+
+  @@index([kind, createdAt])
 }
 
 model Contact {

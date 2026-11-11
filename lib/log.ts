@@ -8,6 +8,7 @@ export type LogScope =
   | "jobs"
   | "contacts"
   | "draft"
+  | "import"
   | "worker"
   | "ui";
 
