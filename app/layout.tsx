@@ -1,46 +1,47 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Suspense } from "react";
 import "./globals.css";
-import Nav from "@/components/Nav";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+import { prisma } from "@/lib/db";
+import AppShell from "@/components/AppShell";
 
 export const metadata: Metadata = {
-  title: "Cold Email Outreach",
-  description: "Local single-user job outreach assistant",
+  title: "ColdAuto — Cold Email Job Outreach",
+  description: "Enterprise-grade local cold email job outreach automation",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+async function PendingBadge() {
+  try {
+    const count = await prisma.outreach.count({
+      where: { status: "drafted" },
+    });
+    if (count <= 0) return null;
+    return (
+      <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-600 border border-rose-200">
+        {count}
+      </span>
+    );
+  } catch {
+    return null;
+  }
+}
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
-      <body className="min-h-full flex flex-col bg-slate-50 text-slate-900">
-        <header className="border-b border-slate-200 bg-white">
-          <div className="mx-auto w-full max-w-6xl">
-            <div className="flex items-baseline gap-3 px-4 pt-4">
-              <span className="text-base font-semibold tracking-tight">
-                ColdAuto
-              </span>
-              <span className="text-xs text-slate-500">
-                local &middot; single user
-              </span>
-            </div>
-            <Nav />
-          </div>
-        </header>
-        <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">
+    <html lang="en" className="h-full antialiased">
+      <body className="min-h-full bg-[#F4F7FA] font-sans text-[#111827] antialiased">
+        <AppShell
+          pendingBadge={
+            <Suspense fallback={null}>
+              <PendingBadge />
+            </Suspense>
+          }
+        >
           {children}
-        </main>
+        </AppShell>
       </body>
     </html>
   );

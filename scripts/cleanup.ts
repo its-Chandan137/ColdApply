@@ -1,12 +1,14 @@
 import { prisma } from "../lib/db";
 
 async function main() {
-  // Remove e2e/seed rows, keep DB tidy between runs.
-  const contacts = await prisma.contact.findMany({ where: { email: { endsWith: "@e2e-corp.example" } } });
-  const contactIds = contacts.map((c) => c.id);
-  await prisma.outreach.deleteMany({ where: { contactId: { in: contactIds } } });
-  await prisma.contact.deleteMany({ where: { email: { endsWith: "@e2e-corp.example" } } });
-  await prisma.job.deleteMany({ where: { company: "E2E Corp" } });
+  // Full reset for reliable e2e runs: wipe all seed data.
+  await prisma.outreach.deleteMany({});
+  await prisma.contact.deleteMany({});
+  await prisma.job.deleteMany({});
+  await prisma.profileSection.deleteMany({});
+  await prisma.profileChunk.deleteMany({});
+  await prisma.appLog.deleteMany({});
+  await prisma.setting.deleteMany({});
 
   console.log("cleanup done");
 }
