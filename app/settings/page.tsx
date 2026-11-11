@@ -89,15 +89,15 @@ async function SettingsPanel() {
           </div>
           <div className="flex justify-between border-b border-slate-100 py-1">
             <dt className="text-slate-500">GEMINI_MODEL</dt>
-            <dd>{process.env.GEMINI_MODEL || "gemini-2.0-flash"}</dd>
+            <dd>{process.env.GEMINI_MODEL || "gemini-2.5-flash"}</dd>
           </div>
           <div className="flex justify-between border-b border-slate-100 py-1">
             <dt className="text-slate-500">GROQ_MODEL</dt>
-            <dd>{process.env.GROQ_MODEL || "llama-3.3-70b-versatile"}</dd>
+            <dd>{process.env.GROQ_MODEL || "llama-3.1-8b-instant"}</dd>
           </div>
           <div className="flex justify-between border-b border-slate-100 py-1">
             <dt className="text-slate-500">EMBED_MODEL</dt>
-            <dd>{process.env.EMBED_MODEL || "models/text-embedding-004"}</dd>
+            <dd>{process.env.EMBED_MODEL || "models/gemini-embedding-001"}</dd>
           </div>
           <div className="flex justify-between border-b border-slate-100 py-1">
             <dt className="text-slate-500">GMAIL_USER</dt>

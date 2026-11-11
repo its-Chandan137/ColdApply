@@ -20,11 +20,50 @@ class ProviderError extends Error {
 }
 
 function geminiModel(): string {
-  return process.env.GEMINI_MODEL || "gemini-2.0-flash";
+  return process.env.GEMINI_MODEL || "gemini-2.5-flash";
 }
 
 function groqModel(): string {
-  return process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+  return process.env.GROQ_MODEL || "llama-3.1-8b-instant";
+}
+
+function uniqueModels(primary: string, fallbacks: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const m of [primary, ...fallbacks]) {
+    const v = m.trim();
+    if (v && !seen.has(v)) {
+      seen.add(v);
+      out.push(v);
+    }
+  }
+  return out;
+}
+
+const GEMINI_FALLBACK_MODELS = [
+  "gemini-3-flash-preview",
+  "gemini-2.5-flash",
+  "gemini-2.0-flash",
+  "gemini-1.5-flash",
+];
+
+const GROQ_FALLBACK_MODELS = [
+  "llama-3.3-70b-versatile",
+  "llama-3.1-8b-instant",
+  "llama3-70b-8192",
+  "gemma2-9b-it",
+];
+
+function isModelNotFound(e: unknown): boolean {
+  if (!(e instanceof ProviderError)) return false;
+  if (e.status === 404) return true;
+  const msg = e.message.toLowerCase();
+  return (
+    msg.includes("model_not_found") ||
+    msg.includes("does not exist") ||
+    msg.includes("no longer available") ||
+    msg.includes("not found")
+  );
 }
 
 function isRetryable(e: unknown): boolean {
@@ -63,11 +102,15 @@ async function postJson(
   return res.json();
 }
 
-async function callGemini(prompt: string, json: boolean): Promise<string> {
+async function callGemini(
+  prompt: string,
+  json: boolean,
+  model: string,
+): Promise<string> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new ProviderError("gemini", 401, "GEMINI_API_KEY not set");
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel()}:generateContent?key=${encodeURIComponent(key)}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
   const body: Record<string, unknown> = {
     contents: [{ role: "user", parts: [{ text: prompt }] }],
   };
@@ -82,13 +125,17 @@ async function callGemini(prompt: string, json: boolean): Promise<string> {
   return text;
 }
 
-async function callGroq(prompt: string, json: boolean): Promise<string> {
+async function callGroq(
+  prompt: string,
+  json: boolean,
+  model: string,
+): Promise<string> {
   const key = process.env.GROQ_API_KEY;
   if (!key) throw new ProviderError("groq", 401, "GROQ_API_KEY not set");
 
   const url = "https://api.groq.com/openai/v1/chat/completions";
   const base = {
-    model: groqModel(),
+    model,
     messages: [{ role: "user", content: prompt }],
     temperature: 0.4,
   };
@@ -105,11 +152,7 @@ async function callGroq(prompt: string, json: boolean): Promise<string> {
     return text;
   } catch (e) {
     // Some Groq models reject response_format - retry once without it.
-    if (
-      json &&
-      e instanceof ProviderError &&
-      e.status === 400
-    ) {
+    if (json && e instanceof ProviderError && e.status === 400) {
       const data = (await postJson("groq", url, base, {
         Authorization: `Bearer ${key}`,
       })) as { choices?: Array<{ message?: { content?: string } }> };
@@ -119,7 +162,7 @@ async function callGroq(prompt: string, json: boolean): Promise<string> {
   }
 }
 
-/** Generate text. Tries Gemini (retry once on 429/5xx/timeout), then Groq. */
+/** Generate text. Tries Gemini (with model fallbacks), then Groq. */
 export async function generate(
   prompt: string,
   opts: { json?: boolean } = {},
@@ -127,33 +170,46 @@ export async function generate(
   const json = opts.json ?? false;
   const errors: string[] = [];
 
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try {
-      const out = await callGemini(prompt, json);
-      console.log(`[llm] provider=gemini model=${geminiModel()} ok`);
-      return out;
-    } catch (e) {
-      errors.push(String(e instanceof Error ? e.message : e));
-      if (!isRetryable(e)) break;
-      if (attempt < 2) await sleep(700);
+  const geminiModels = uniqueModels(geminiModel(), GEMINI_FALLBACK_MODELS);
+  for (const model of geminiModels) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const out = await callGemini(prompt, json, model);
+        console.log(`[llm] provider=gemini model=${model} ok`);
+        return out;
+      } catch (e) {
+        errors.push(String(e instanceof Error ? e.message : e));
+        if (isModelNotFound(e)) break; // try next model
+        if (!isRetryable(e)) break;
+        if (attempt < 2) await sleep(700);
+      }
     }
   }
 
-  try {
-    const out = await callGroq(prompt, json);
-    console.log(`[llm] provider=groq model=${groqModel()} ok (fallback)`);
-    await logEvent({
-      scope: "llm",
-      message: `answered by groq (${groqModel()}) after gemini failure`,
-      detail: errors.join("\n"),
-    });
-    return out;
-  } catch (e) {
-    errors.push(String(e instanceof Error ? e.message : e));
-    const message = `All LLM providers failed: ${errors.join(" | ")}`;
-    await logEvent({ level: "error", scope: "llm", message });
-    throw new Error(message);
+  const groqModels = uniqueModels(groqModel(), GROQ_FALLBACK_MODELS);
+  for (const model of groqModels) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const out = await callGroq(prompt, json, model);
+        console.log(`[llm] provider=groq model=${model} ok (fallback)`);
+        await logEvent({
+          scope: "llm",
+          message: `answered by groq (${model}) after gemini failure`,
+          detail: errors.join("\n"),
+        });
+        return out;
+      } catch (e) {
+        errors.push(String(e instanceof Error ? e.message : e));
+        if (isModelNotFound(e)) break; // try next model
+        if (!isRetryable(e)) break;
+        if (attempt < 2) await sleep(700);
+      }
+    }
   }
+
+  const message = `All LLM providers failed: ${errors.join(" | ")}`;
+  await logEvent({ level: "error", scope: "llm", message });
+  throw new Error(message);
 }
 
 /** generate() + robust JSON parsing (strips fences, finds outer braces). */
@@ -184,28 +240,55 @@ export function parseJSON<T>(raw: string): T {
 export async function embed(text: string): Promise<number[]> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error("GEMINI_API_KEY not set (needed for embeddings)");
-  const model = process.env.EMBED_MODEL || "models/text-embedding-004";
-  const url = `https://generativelanguage.googleapis.com/v1beta/${model}:embedContents?key=${encodeURIComponent(key)}`;
-  const body = { model, content: { parts: [{ text: text.slice(0, 8000) }] } };
+
+  const candidates = uniqueModels(
+    process.env.EMBED_MODEL || "models/gemini-embedding-001",
+    [
+      "models/gemini-embedding-001",
+      "models/text-embedding-004",
+      "models/embedding-001",
+    ],
+  );
 
   let lastErr: unknown = null;
-  for (let attempt = 0; attempt < 4; attempt++) {
-    if (attempt > 0) await sleep(1000 * 2 ** (attempt - 1)); // 1s, 2s, 4s
-    try {
-      const data = (await postJson("gemini-embed", url, body)) as {
-        embeddings?: Array<{ values?: number[] }>;
-      };
-      const values = data.embeddings?.[0]?.values;
-      if (!values || values.length === 0) {
-        throw new ProviderError("gemini-embed", 502, "no embedding returned");
+  for (const model of candidates) {
+    // Try both endpoint names and handle both response shapes.
+    for (const ep of ["embedContent", "embedContents"] as const) {
+      const url = `https://generativelanguage.googleapis.com/v1beta/${model}:${ep}?key=${encodeURIComponent(key)}`;
+      const body = { model, content: { parts: [{ text: text.slice(0, 8000) }] } };
+      for (let attempt = 0; attempt < 4; attempt++) {
+        if (attempt > 0) await sleep(1000 * 2 ** (attempt - 1));
+        try {
+          const data = (await postJson("gemini-embed", url, body)) as {
+            embedding?: { values?: number[] };
+            embeddings?: Array<{ values?: number[] }>;
+          };
+          const values = data.embedding?.values ?? data.embeddings?.[0]?.values;
+          if (!values || values.length === 0) {
+            throw new ProviderError("gemini-embed", 502, "no embedding returned");
+          }
+          console.log(`[llm] embed ok model=${model} dims=${values.length}`);
+          return values;
+        } catch (e) {
+          lastErr = e;
+          if (isModelNotFound(e)) {
+            attempt = 99; // break retry loop, try next endpoint/model
+            break;
+          }
+          if (!isRetryable(e)) {
+            attempt = 99;
+            break;
+          }
+        }
       }
-      console.log(`[llm] embed ok model=${model} dims=${values.length}`);
-      return values;
-    } catch (e) {
-      lastErr = e;
-      if (!isRetryable(e)) break;
+      // if last error was model-not-found, try next endpoint/model; otherwise keep trying
+      if (!isModelNotFound(lastErr)) {
+        // non-model-not-found failure after retries - don't spin through all combos forever
+      }
     }
+    // continue to next model candidate if we exhausted retries due to not-found on this one
   }
+
   const message = `Embedding failed: ${
     lastErr instanceof Error ? lastErr.message : String(lastErr)
   }`;

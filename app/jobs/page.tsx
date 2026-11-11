@@ -1,7 +1,10 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { rescoreJob } from "@/app/actions/jobs";
 import AddJobForm from "@/components/AddJobForm";
+import ActionForm from "@/components/ActionForm";
+import DeleteJobButton from "@/components/DeleteJobButton";
 
 function ScoreBadge({ score }: { score: number | null }) {
   if (score === null) {
@@ -62,6 +65,7 @@ async function JobList() {
               <th className="px-5 py-3.5">Contacts</th>
               <th className="px-5 py-3.5">Outreach</th>
               <th className="px-5 py-3.5">Date Added</th>
+              <th className="px-5 py-3.5">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[#F1F5F9]">
@@ -93,6 +97,21 @@ async function JobList() {
                 </td>
                 <td className="px-5 py-4 text-xs font-medium text-[#8293AD]">
                   {j.createdAt.toLocaleDateString()}
+                </td>
+                <td className="px-5 py-4">
+                  <div className="flex flex-wrap items-start gap-2">
+                    <ActionForm
+                      action={rescoreJob}
+                      fields={[{ name: "id", value: j.id }]}
+                      label="Re-score"
+                      pendingLabel="Scoring…"
+                      className="rounded-lg border border-[#E5EAF0] bg-white px-2.5 py-1 text-xs font-semibold text-[#111827] hover:bg-[#F8FAFC] disabled:opacity-50"
+                    />
+                    <DeleteJobButton
+                      jobId={j.id}
+                      jobLabel={`${j.title} @ ${j.company}`}
+                    />
+                  </div>
                 </td>
               </tr>
             ))}
