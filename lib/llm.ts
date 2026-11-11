@@ -20,11 +20,11 @@ class ProviderError extends Error {
 }
 
 function geminiModel(): string {
-  return process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  return process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
 }
 
 function groqModel(): string {
-  return process.env.GROQ_MODEL || "llama-3.1-8b-instant";
+  return process.env.GROQ_MODEL || "openai/gpt-oss-20b";
 }
 
 function uniqueModels(primary: string, fallbacks: string[]): string[] {
@@ -41,17 +41,17 @@ function uniqueModels(primary: string, fallbacks: string[]): string[] {
 }
 
 const GEMINI_FALLBACK_MODELS = [
-  "gemini-3-flash-preview",
-  "gemini-2.5-flash",
+  "gemini-2.5-flash-lite",
   "gemini-2.0-flash",
-  "gemini-1.5-flash",
+  "gemini-2.0-flash-lite",
+  "gemini-flash-latest",
 ];
 
 const GROQ_FALLBACK_MODELS = [
+  "openai/gpt-oss-20b",
+  "openai/gpt-oss-120b",
   "llama-3.3-70b-versatile",
   "llama-3.1-8b-instant",
-  "llama3-70b-8192",
-  "gemma2-9b-it",
 ];
 
 function isModelNotFound(e: unknown): boolean {
